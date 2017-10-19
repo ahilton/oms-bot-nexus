@@ -1,62 +1,87 @@
 package org.bbtf.nexus;
 
+import feign.Feign;
+import org.bbtf.client.BotloggerClient;
 import org.bttf.v3client.ApiClient;
 import org.bttf.v3client.ApiException;
 import org.bttf.v3client.Configuration;
 import org.bttf.v3client.api.ConversationsApi;
-import org.bttf.v3client.api.TokensApi;
-import org.bttf.v3client.model.Activity;
-import org.bttf.v3client.model.ActivitySet;
-import org.bttf.v3client.model.ChannelAccount;
-import org.bttf.v3client.model.Conversation;
+import org.bttf.v3client.model.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Controller;
 import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 
 import javax.annotation.PostConstruct;
 
-
 @Service
+@Controller
 public class NexusService {
 
     private ConversationsApi conversationsApi;
-    private TokensApi tokensApi;
+    private ChannelAccount serviceAccount;
+    private BotloggerClient botloggerService;
 
     private static String API_KEY = System.getProperty("bot.api.key");
+    private static String BOT_LOGGER_HOST = System.getProperty("bot.logger.host");
 
-//    @PostConstruct
-//    public void init(){
-//        ApiClient apiClient = new ApiClient();
-//        ApiKeyAuth auth = new ApiKeyAuth("header", "Bearer");
-//        auth.setApiKey("a4a7xm8u_AU.cwA.tVM.UL9WULGsuPfS8fNGGkd8kDz6YIA410WQXcStF97qPYw");
-//        apiClient.addAuthorization("Bearer",auth);
-//        conversationsApi = apiClient.buildClient(ConversationsApi.class);
-//        tokensApi = apiClient.buildClient(TokensApi.class);
-//        converse();
-//    }
-//
-//    @PostConstruct
-//    public void init() throws ApiException {
-//        //http://voicebase.readthedocs.io/en/v3/how-to-guides/swagger-codegen.html
-//        ApiClient apiClient = Configuration.getDefaultApiClient();
-//        Client httpClient = apiClient.getHttpClient();
-//        //httpClient.property(ClientProperties.REQUEST_ENTITY_PROCESSING, RequestEntityProcessing.CHUNKED);
-//        //httpClient.property(ClientProperties.CHUNKED_ENCODING_SIZE, ClientProperties.DEFAULT_CHUNK_SIZE);
-////        ClientConfig configuration = new ClientConfig();
-////        configuration.property();
-//        apiClient.addDefaultHeader("Authorization", "Bearer "+API_KEY);
-//        conversationsApi = new ConversationsApi();
-//
-//        converse();
-//    }
+    private static Logger logger = LoggerFactory.getLogger(NexusService.class);
 
     @PostConstruct
     public void init() throws ApiException {
-
+        logger.info("Initialising conversation api");
         ApiClient defaultApiClient = Configuration.getDefaultApiClient();
         defaultApiClient.addDefaultHeader("Authorization", "Bearer "+API_KEY);
-
         conversationsApi = new ConversationsApi();
 
-        converse();
+        ChannelAccount cAccount = new ChannelAccount();
+        cAccount.setName("Nexus");
+        cAccount.setId("nexus");
+
+        logger.info("Initialising Botlogger feign client at host: "+BOT_LOGGER_HOST);
+        botloggerService = Feign.builder()
+                .target(BotloggerClient.class, BOT_LOGGER_HOST);
+
+        logger.info("Initialisation complete");
+
+    }
+
+    @GetMapping("/conversation/events")
+    @ResponseBody
+    public ActivitySet getConversationEvents(
+            @RequestParam(name="conversationId", required=false) String conversationId,
+            @RequestParam(name="watermark", required=false) String watermark) throws ApiException {
+
+        if (conversationId == null || conversationId.isEmpty()){
+            logger.info("Looking up latest conversation id...");
+            conversationId = botloggerService.getLastConversationId();
+            logger.info("Using latest conversation id:"+conversationId);
+        }
+        //conversationsApi.conversationsReconnectToConversation()
+        //Conversation conversation = conversationsApi.conversationsReconnectToConversation(conversationId, watermark);
+        return conversationsApi.conversationsGetActivities(conversationId, watermark);
+    }
+
+    @GetMapping("/conversation/new")
+    @ResponseBody
+    public String startConversation(@RequestBody String initialMessage) throws ApiException {
+        Conversation conversation = conversationsApi.conversationsStartConversation();
+        String conversationId = conversation.getConversationId();
+        Activity activity = buildActivityForMessage(initialMessage);
+        conversationsApi.conversationsPostActivity(conversationId, activity);
+        return conversationId;
+    }
+
+    private Activity buildActivityForMessage(String initialMessage) {
+        Activity activity = new Activity();
+        activity.setType("message");
+        activity.setText(initialMessage);
+        activity.setFrom(serviceAccount);
+        return activity;
     }
 
     private void converse() throws ApiException {
@@ -73,16 +98,14 @@ public class NexusService {
         Activity activity = new Activity();
         activity.setType("message");
         activity.setText("order 1000 shares of appl");
-        ChannelAccount cAccount = new ChannelAccount();
-        cAccount.setName("AlexName");
-        cAccount.setId("AlexId");
-        activity.setFrom(cAccount);
+
+        activity.setFrom(serviceAccount);
         conversationsApi.conversationsPostActivity(conversation.getConversationId(), activity);
 
-        while(true){
+//        while(true){
             ActivitySet activitySet = conversationsApi.conversationsGetActivities(conversation.getConversationId(), null);
             System.out.println(activitySet.toString());
-        }
+//        }
 
         //ActivitySet activitySet = conversationsApi.conversationsGetActivities();
         //System.out.println(activitySet);
