@@ -2,19 +2,16 @@ package org.bbtf.nexus;
 
 import feign.Feign;
 import org.bbtf.client.BotloggerClient;
+import org.bbtf.model.PushEvent;
 import org.bttf.v3client.ApiClient;
 import org.bttf.v3client.ApiException;
-import org.bttf.v3client.Configuration;
 import org.bttf.v3client.api.ConversationsApi;
 import org.bttf.v3client.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Controller;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
 
@@ -22,7 +19,7 @@ import javax.annotation.PostConstruct;
 @Controller
 public class NexusService {
 
-    private ConversationsApi conversationsApi;
+    //private ConversationsApi conversationsApi;
     private ChannelAccount serviceAccount;
     private BotloggerClient botloggerService;
 
@@ -33,14 +30,11 @@ public class NexusService {
 
     @PostConstruct
     public void init() throws ApiException {
-        logger.info("Initialising conversation api");
-        ApiClient defaultApiClient = Configuration.getDefaultApiClient();
-        defaultApiClient.addDefaultHeader("Authorization", "Bearer "+API_KEY);
-        conversationsApi = new ConversationsApi();
+        //conversationsApi = initApiClient(API_KEY);
 
-        ChannelAccount cAccount = new ChannelAccount();
-        cAccount.setName("Nexus");
-        cAccount.setId("nexus");
+        serviceAccount = new ChannelAccount();
+        serviceAccount.setName("Nexus");
+        serviceAccount.setId("nexus");
 
         logger.info("Initialising Botlogger feign client at host: "+BOT_LOGGER_HOST);
         botloggerService = Feign.builder()
@@ -50,65 +44,29 @@ public class NexusService {
 
     }
 
-    @GetMapping("/conversation/events")
-    @ResponseBody
-    public ActivitySet getConversationEvents(
-            @RequestParam(name="conversationId", required=false) String conversationId,
-            @RequestParam(name="watermark", required=false) String watermark) throws ApiException {
-
-        if (conversationId == null || conversationId.isEmpty()){
-            logger.info("Looking up latest conversation id...");
-            conversationId = botloggerService.getLastConversationId();
-            logger.info("Using latest conversation id:"+conversationId);
-        }
-        //conversationsApi.conversationsReconnectToConversation()
-        //Conversation conversation = conversationsApi.conversationsReconnectToConversation(conversationId, watermark);
-        return conversationsApi.conversationsGetActivities(conversationId, watermark);
+    private ConversationsApi initApiClient(String apiKey) {
+        logger.info("Initialising conversation api");
+        ApiClient apiClient = new ApiClient();
+        apiClient.addDefaultHeader("Authorization", "Bearer "+apiKey);
+        return new ConversationsApi(apiClient);
     }
 
-    @GetMapping("/conversation/new")
+    @CrossOrigin
+    @PutMapping("/event/push")
     @ResponseBody
-    public String startConversation(@RequestBody String initialMessage) throws ApiException {
-        Conversation conversation = conversationsApi.conversationsStartConversation();
-        String conversationId = conversation.getConversationId();
-        Activity activity = buildActivityForMessage(initialMessage);
-        conversationsApi.conversationsPostActivity(conversationId, activity);
-        return conversationId;
+    public void pushEvent(@RequestBody PushEvent pushEvent) throws ApiException {
+        ConversationsApi conversationsApi = initApiClient(pushEvent.getChannelKey());
+        //Conversation conversation = conversationsApi.conversationsReconnectToConversation(pushEvent.getConversationId(), null);
+        Activity activity = buildActivityForMessage(pushEvent.getMessage());
+        ResourceResponse resourceResponse = conversationsApi.conversationsPostActivity(pushEvent.getConversationId(), activity);
+        logger.info(resourceResponse.toString());
     }
 
     private Activity buildActivityForMessage(String initialMessage) {
         Activity activity = new Activity();
-        activity.setType("message");
+        activity.setType("Message");
         activity.setText(initialMessage);
         activity.setFrom(serviceAccount);
         return activity;
-    }
-
-    private void converse() throws ApiException {
-//        ChannelAccount user = new ChannelAccount();
-//        user.setId("a4a7xm8u_AU.cwA.tVM.UL9WULGsuPfS8fNGGkd8kDz6YIA410WQXcStF97qPYw");
-//        TokenParameters tokenParams = new TokenParameters();
-        //tokenParams.setETag("a4a7xm8u_AU.cwA.tVM.UL9WULGsuPfS8fNGGkd8kDz6YIA410WQXcStF97qPYw");
-        //tokenParams.setUser(user);
-        //conversationsApi.conversationsStartConversation();
-        //Conversation conversation = tokensApi.tokensGenerateTokenForNewConversation(tokenParams);
-        Conversation conversation = conversationsApi.conversationsStartConversation();
-        System.out.println(conversation);
-
-        Activity activity = new Activity();
-        activity.setType("message");
-        activity.setText("order 1000 shares of appl");
-
-        activity.setFrom(serviceAccount);
-        conversationsApi.conversationsPostActivity(conversation.getConversationId(), activity);
-
-//        while(true){
-            ActivitySet activitySet = conversationsApi.conversationsGetActivities(conversation.getConversationId(), null);
-            System.out.println(activitySet.toString());
-//        }
-
-        //ActivitySet activitySet = conversationsApi.conversationsGetActivities();
-        //System.out.println(activitySet);
-
     }
 }
