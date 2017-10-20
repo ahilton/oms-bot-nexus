@@ -7,4 +7,6 @@ public class PushEvent {
     String message;
     String channelKey;
     String conversationId;
+    String userId;
+    String userName;
 }

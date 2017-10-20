@@ -57,16 +57,19 @@ public class NexusService {
     public void pushEvent(@RequestBody PushEvent pushEvent) throws ApiException {
         ConversationsApi conversationsApi = initApiClient(pushEvent.getChannelKey());
         //Conversation conversation = conversationsApi.conversationsReconnectToConversation(pushEvent.getConversationId(), null);
-        Activity activity = buildActivityForMessage(pushEvent.getMessage());
+        Activity activity = buildActivityForMessage(pushEvent);
         ResourceResponse resourceResponse = conversationsApi.conversationsPostActivity(pushEvent.getConversationId(), activity);
         logger.info(resourceResponse.toString());
     }
 
-    private Activity buildActivityForMessage(String initialMessage) {
+    private Activity buildActivityForMessage(PushEvent event) {
         Activity activity = new Activity();
         activity.setType("Message");
-        activity.setText(initialMessage);
-        activity.setFrom(serviceAccount);
+        activity.setText(event.getMessage());
+        ChannelAccount account = new ChannelAccount();
+        account.setId(event.getUserId());
+        account.setName(event.getUserName());
+        activity.setFrom(account);
         return activity;
     }
 }
