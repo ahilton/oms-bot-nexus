@@ -1,7 +1,6 @@
 package org.bbtf.nexus;
 
-import feign.Feign;
-import org.bbtf.client.BotloggerClient;
+import ai.api.model.*;
 import org.bbtf.model.PushEvent;
 import org.bttf.v3client.ApiClient;
 import org.bttf.v3client.ApiException;
@@ -21,9 +20,8 @@ public class NexusService {
 
     //private ConversationsApi conversationsApi;
     private ChannelAccount serviceAccount;
-    private BotloggerClient botloggerService;
 
-    private static String API_KEY = System.getProperty("bot.api.key");
+    private static String API_KEY = System.getProperty("bot.api.key", "__a4a7xm8u_AU.cwA.tVM.UL9WULGsuPfS8fNGGkd8kDz6YIA410WQXcStF97qPYw");
     private static String BOT_LOGGER_HOST = System.getProperty("bot.logger.host");
 
     private static Logger logger = LoggerFactory.getLogger(NexusService.class);
@@ -36,9 +34,9 @@ public class NexusService {
         serviceAccount.setName("Nexus");
         serviceAccount.setId("nexus");
 
-        logger.info("Initialising Botlogger feign client at host: "+BOT_LOGGER_HOST);
-        botloggerService = Feign.builder()
-                .target(BotloggerClient.class, BOT_LOGGER_HOST);
+//        logger.info("Initialising Botlogger feign client at host: "+BOT_LOGGER_HOST);
+//        botloggerService = Feign.builder()
+//                .target(BotloggerClient.class, BOT_LOGGER_HOST);
 
         logger.info("Initialisation complete");
 
@@ -51,6 +49,24 @@ public class NexusService {
         return new ConversationsApi(apiClient);
     }
 
+    /**
+     * Web-hook request model class
+     */
+    protected static class AIWebhookRequest extends AIResponse {
+        private static final long serialVersionUID = 1L;
+
+        private AIOriginalRequest originalRequest;
+
+        /**
+         * Get original request object
+         * @return <code>null</code> if original request undefined in
+         * request object
+         */
+        public AIOriginalRequest getOriginalRequest() {
+            return originalRequest;
+        }
+    }
+
     @CrossOrigin
     @PutMapping("/event/push")
     @ResponseBody
@@ -60,6 +76,49 @@ public class NexusService {
         Activity activity = buildActivityForMessage(pushEvent);
         ResourceResponse resourceResponse = conversationsApi.conversationsPostActivity(pushEvent.getConversationId(), activity);
         logger.info(resourceResponse.toString());
+    }
+
+    @CrossOrigin
+    @PostMapping("/event/client/v2")
+    @ResponseBody
+    public Fulfillment clientEvent(@RequestBody AIWebhookRequest response){
+        logger.info("Client event triggered");
+        logger.info(response.toString());
+        Result result = response.getResult();
+        String resolvedQuery = result.getResolvedQuery();
+        logger.info("resolved query:"+resolvedQuery);
+        AIOriginalRequest originalRequest = response.getOriginalRequest();
+        logger.info("orig req: "+originalRequest.getData().toString());
+        return testFulfillment();
+    }
+
+    private Fulfillment testFulfillment() {
+        Fulfillment fulfillment = new Fulfillment();
+        fulfillment.setSpeech("hello world from oms bot");
+        fulfillment.setDisplayText("hello world from oms bot");
+        fulfillment.setSource("omsgateway");
+        return fulfillment;
+    }
+
+    @CrossOrigin
+    @PostMapping("/event/client")
+    @ResponseBody
+    public Fulfillment clientEvent(@RequestBody AIResponse response){
+        logger.info("Client event triggered");
+        logger.info(response.toString());
+        Result result = response.getResult();
+        String resolvedQuery = result.getResolvedQuery();
+        logger.info("resolved query:"+resolvedQuery);
+        return testFulfillment();
+    }
+
+    @CrossOrigin
+    @PostMapping("/event/test")
+    @ResponseBody
+    public Fulfillment clientEvent(@RequestBody AIRequest req){
+        logger.info("Client req triggered");
+        logger.info(req.toString());
+        return testFulfillment();
     }
 
     private Activity buildActivityForMessage(PushEvent event) {
