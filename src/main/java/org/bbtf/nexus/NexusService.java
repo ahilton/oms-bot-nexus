@@ -37,7 +37,7 @@ public class NexusService {
 
     private static String buyCorrections = System.getProperty("buy.corrections", "bye,bi,boy");
     private static String sellCorrections = System.getProperty("sell.corrections", "south,sal,selfies");
-    private static String orderCorrections = System.getProperty("order.corrections", "border");
+    private static String orderCorrections = System.getProperty("order.corrections", "border,bipolar");
 
     private static MutableList<String> buyCorrectionList = Lists.mutable.of();
     private static MutableList<String> sellCorrectionList = Lists.mutable.of();
@@ -76,7 +76,8 @@ public class NexusService {
     @PutMapping("/event/push")
     @ResponseBody
     public void pushEvent(@RequestBody PushEvent pushEvent) throws ApiException {
-        ConversationsApi conversationsApi = initApiClient(pushEvent.getChannelKey());
+        logger.info("Received push event:"+pushEvent.toString());
+        ConversationsApi conversationsApi = pushEvent.getChannelKey()==null?this.conversationsApi:initApiClient(pushEvent.getChannelKey());
         //Conversation conversation = conversationsApi.conversationsReconnectToConversation(pushEvent.getConversationId(), null);
         ChannelAccount account = new ChannelAccount();
         account.setId(pushEvent.getUserId());
