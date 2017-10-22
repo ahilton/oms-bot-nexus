@@ -26,7 +26,8 @@ import java.util.List;
 @Controller
 public class NexusService {
 
-    public static final String CLIENT_ERROR_REPLY = "Oh dear. Connection timeout waiting for bot to answer me. Say refresh to try again.";
+    public static final String CLIENT_ERROR_REPLY = "Oh dear. Connection timeout waiting for bot to answer me.";
+    public static final String CLIENT_UPDATE_ERROR_REPLY = "Looks like you have not started an order yet. Say order to get started.";
     ConcurrentMutableMap<String, String> clientBotConversationMap = new ConcurrentHashMap<>();
 
     private ConversationsApi conversationsApi;
@@ -36,9 +37,11 @@ public class NexusService {
 
     private static String buyCorrections = System.getProperty("buy.corrections", "bye,bi,boy");
     private static String sellCorrections = System.getProperty("sell.corrections", "south,sal,selfies");
+    private static String orderCorrections = System.getProperty("order.corrections", "border");
 
     private static MutableList<String> buyCorrectionList = Lists.mutable.of();
     private static MutableList<String> sellCorrectionList = Lists.mutable.of();
+    private static MutableList<String> orderCorrectionList = Lists.mutable.of();
 
     private static Logger logger = LoggerFactory.getLogger(NexusService.class);
 
@@ -50,12 +53,16 @@ public class NexusService {
         serviceAccount.setName("Nexus");
         serviceAccount.setId("nexus");
 
-        ArrayIterate.addAllTo(buyCorrections.split(","), buyCorrectionList);
-        logger.info("Buy corrections:"+buyCorrections.toString());
-        ArrayIterate.addAllTo(sellCorrections.split(","), sellCorrectionList);
-        logger.info("Sell corrections:"+sellCorrections.toString());
+        initCorrectionList(buyCorrectionList, "buy", buyCorrections);
+        initCorrectionList(sellCorrectionList, "sell", sellCorrections);
+        initCorrectionList(orderCorrectionList, "order", orderCorrections);
 
         logger.info("Initialisation complete");
+    }
+
+    private void initCorrectionList(MutableList<String> targetList, String type, String correctionCSV) {
+        ArrayIterate.addAllTo(correctionCSV.split(","), targetList);
+        logger.info(type+" corrections:"+targetList.toString());
     }
 
     private ConversationsApi initApiClient(String apiKey) {
@@ -88,15 +95,28 @@ public class NexusService {
         Result result = response.getResult();
         String resolvedQuery = result.getResolvedQuery();
         logger.info("resolved query:"+resolvedQuery);
+        String clientConversationId = response.getSessionId();
 
-        resolvedQuery = autoCorrectForBuySell(resolvedQuery);
+        if (resolvedQuery.equalsIgnoreCase("update") ||
+                resolvedQuery.equalsIgnoreCase("refresh")){
+            try {
+                String serverConversationId = getServerConversationId(clientConversationId);
+                String lastBotMessage = getLastBotMessage(serverConversationId, null);
+                return buildFulfillment(lastBotMessage==null?CLIENT_UPDATE_ERROR_REPLY:lastBotMessage);
+            } catch (ApiException e) {
+                logger.error("Exception trying to submit message to bot", e);
+                return buildFulfillment(CLIENT_UPDATE_ERROR_REPLY);
+            }
+        }
+
+        resolvedQuery = autoCorrect(resolvedQuery);
 
         AIOriginalRequest originalRequest = response.getOriginalRequest();
         logger.info("orig req: "+originalRequest.getData().toString());
 
         String botReply = null;
         try {
-            botReply = submitToBot(response.getSessionId(), resolvedQuery);
+            botReply = submitToBot(clientConversationId, resolvedQuery);
         } catch (ApiException e) {
             logger.error("Exception trying to submit message to bot", e);
             botReply = CLIENT_ERROR_REPLY;
@@ -105,11 +125,15 @@ public class NexusService {
         return buildFulfillment(botReply);
     }
 
-    private String autoCorrectForBuySell(String resolvedQuery) {
+    private String autoCorrect(String resolvedQuery) {
 
         if (resolvedQuery.contains(" ")){
             //only apply autocorrect to single word sentences
             return resolvedQuery;
+        }
+        if (orderCorrectionList.contains(resolvedQuery.toLowerCase())){
+            logger.info("Applying correction "+resolvedQuery+ "-> order");
+            return "order";
         }
         if (buyCorrectionList.contains(resolvedQuery.toLowerCase())){
             logger.info("Applying correction "+resolvedQuery+ "-> buy");
@@ -123,6 +147,31 @@ public class NexusService {
     }
 
     private String submitToBot(String clientConversationId, String text) throws ApiException {
+        String serverConversationId = getServerConversationId(clientConversationId);
+        //fetch water mark prior to sending activity...
+        ActivitySet activitySet = conversationsApi.conversationsGetActivities(serverConversationId, null);
+        String watermark = activitySet.getWatermark();
+        logger.info("watermark:"+watermark);
+
+        Activity activity = buildActivityForMessage(text, serviceAccount);
+        ResourceResponse resourceResponse = conversationsApi.conversationsPostActivity(serverConversationId, activity);
+        logger.info(resourceResponse.toString());
+
+        int retryCount = 0;
+        while(retryCount<100){
+            retryCount++;
+            String lastMessage = getLastBotMessage(serverConversationId, watermark);
+            if (lastMessage != null) {
+                return lastMessage;
+            }
+            logger.info("Waiting for activity update... retry:"+retryCount);
+
+        }
+        // wait for a reply
+        return CLIENT_ERROR_REPLY;
+    }
+
+    private String getServerConversationId(String clientConversationId) throws ApiException {
         String serverConversationId;
         if (clientBotConversationMap.containsKey(clientConversationId)){
             logger.info("Reconnecting to client conversation id:"+clientConversationId);
@@ -136,36 +185,25 @@ public class NexusService {
             logger.info("caching new server conversation id:"+serverConversationId);
             clientBotConversationMap.put(clientConversationId, serverConversationId);
         }
-        //fetch water mark prior to sending activity...
-        ActivitySet activitySet = conversationsApi.conversationsGetActivities(serverConversationId, null);
-        String watermark = activitySet.getWatermark();
-        logger.info("watermark:"+watermark);
+        return serverConversationId;
+    }
 
-        Activity activity = buildActivityForMessage(text, serviceAccount);
-        ResourceResponse resourceResponse = conversationsApi.conversationsPostActivity(serverConversationId, activity);
-        logger.info(resourceResponse.toString());
-
-        int retryCount = 0;
-        while(retryCount<100){
-            retryCount++;
-            ActivitySet updatedActivitySet = conversationsApi.conversationsGetActivities(serverConversationId, watermark);
-            List<Activity> activities = updatedActivitySet.getActivities();
-            Collection<Activity> x = Iterate.reject(activities, (a) -> a.getFrom().getId().equals(serviceAccount.getId()));
-            if (x.isEmpty()){
-                logger.info("Waiting for activity update... retry:"+retryCount);
-                continue;
-            }
-            Activity last = Iterate.getLast(x);
-            // return speech ahead of text
-            if (last.getSpeak() != null){
-                return last.getSpeak();
-            }
-            if (last.getText() != null){
-                return last.getText();
-            }
+    private String getLastBotMessage(String serverConversationId, String watermark) throws ApiException {
+        ActivitySet updatedActivitySet = conversationsApi.conversationsGetActivities(serverConversationId, watermark);
+        List<Activity> activities = updatedActivitySet.getActivities();
+        Collection<Activity> botActivity = Iterate.reject(activities, (a) -> a.getFrom().getId().equals(serviceAccount.getId()));
+        if (botActivity.isEmpty()){
+            return null;
         }
-        // wait for a reply
-        return CLIENT_ERROR_REPLY;
+        Activity last = Iterate.getLast(botActivity);
+        // return speech ahead of text
+        if (last.getSpeak() != null){
+            return last.getSpeak();
+        }
+        if (last.getText() != null){
+            return last.getText();
+        }
+        return null;
     }
 
     // Microsoft
