@@ -6,8 +6,11 @@ import org.bttf.v3client.ApiClient;
 import org.bttf.v3client.ApiException;
 import org.bttf.v3client.api.ConversationsApi;
 import org.bttf.v3client.model.*;
+import org.eclipse.collections.api.list.MutableList;
 import org.eclipse.collections.api.map.ConcurrentMutableMap;
+import org.eclipse.collections.impl.factory.Lists;
 import org.eclipse.collections.impl.map.mutable.ConcurrentHashMap;
+import org.eclipse.collections.impl.utility.ArrayIterate;
 import org.eclipse.collections.impl.utility.Iterate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +34,12 @@ public class NexusService {
 
     private static String API_KEY = System.getProperty("bot.api.key", "__a4a7xm8u_AU.cwA.tVM.UL9WULGsuPfS8fNGGkd8kDz6YIA410WQXcStF97qPYw");
 
+    private static String buyCorrections = System.getProperty("buy.corrections", "bye,bi,boy");
+    private static String sellCorrections = System.getProperty("sell.corrections", "south,sal,selfies");
+
+    private static MutableList<String> buyCorrectionList = Lists.mutable.of();
+    private static MutableList<String> sellCorrectionList = Lists.mutable.of();
+
     private static Logger logger = LoggerFactory.getLogger(NexusService.class);
 
     @PostConstruct
@@ -41,8 +50,12 @@ public class NexusService {
         serviceAccount.setName("Nexus");
         serviceAccount.setId("nexus");
 
-        logger.info("Initialisation complete");
+        ArrayIterate.addAllTo(buyCorrections.split(","), buyCorrectionList);
+        logger.info("Buy corrections:"+buyCorrections.toString());
+        ArrayIterate.addAllTo(sellCorrections.split(","), sellCorrectionList);
+        logger.info("Sell corrections:"+sellCorrections.toString());
 
+        logger.info("Initialisation complete");
     }
 
     private ConversationsApi initApiClient(String apiKey) {
@@ -75,6 +88,9 @@ public class NexusService {
         Result result = response.getResult();
         String resolvedQuery = result.getResolvedQuery();
         logger.info("resolved query:"+resolvedQuery);
+
+        resolvedQuery = autoCorrectForBuySell(resolvedQuery);
+
         AIOriginalRequest originalRequest = response.getOriginalRequest();
         logger.info("orig req: "+originalRequest.getData().toString());
 
@@ -87,6 +103,23 @@ public class NexusService {
         }
         logger.info("Reply from bot:"+botReply);
         return buildFulfillment(botReply);
+    }
+
+    private String autoCorrectForBuySell(String resolvedQuery) {
+
+        if (resolvedQuery.contains(" ")){
+            //only apply autocorrect to single word sentences
+            return resolvedQuery;
+        }
+        if (buyCorrectionList.contains(resolvedQuery.toLowerCase())){
+            logger.info("Applying correction "+resolvedQuery+ "-> buy");
+            return "buy";
+        }
+        if (sellCorrectionList.contains(resolvedQuery.toLowerCase())){
+            logger.info("Applying correction "+resolvedQuery+ "-> sell");
+            return "sell";
+        }
+        return resolvedQuery;
     }
 
     private String submitToBot(String clientConversationId, String text) throws ApiException {
@@ -114,6 +147,7 @@ public class NexusService {
 
         int retryCount = 0;
         while(retryCount<100){
+            retryCount++;
             ActivitySet updatedActivitySet = conversationsApi.conversationsGetActivities(serverConversationId, watermark);
             List<Activity> activities = updatedActivitySet.getActivities();
             Collection<Activity> x = Iterate.reject(activities, (a) -> a.getFrom().getId().equals(serviceAccount.getId()));

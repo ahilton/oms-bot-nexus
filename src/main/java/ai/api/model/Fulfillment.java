@@ -37,7 +37,7 @@ public class Fulfillment implements Serializable {
   private String speech;
 
   @SerializedName("messages")
-  private List<ResponseMessage> messages;
+  private List<FatResponseMessage> messages;
 
   @SerializedName("displayText")
   private String displayText;
@@ -65,12 +65,12 @@ public class Fulfillment implements Serializable {
   }
 
   /** Get list of {@link ResponseMessage} objects */
-  public List<ResponseMessage> getMessages() {
+  public List<FatResponseMessage> getMessages() {
     return messages;
   }
 
   /** Set list of {@link ResponseMessage} objects */
-  public void setMessages(List<ResponseMessage> messages) {
+  public void setMessages(List<FatResponseMessage> messages) {
     this.messages = messages;
   }
   
@@ -79,14 +79,14 @@ public class Fulfillment implements Serializable {
 //    setMessages(Arrays.asList(messages));
 //  }
 
-  /**
-   * @deprecated this method name is a typo, use <code>setMessages</code> method instead
-   */
-  @Deprecated
-  public void getMessages(List<ResponseMessage> messages) {
-    // TODO remove this method after major version change
-    setMessages(messages);
-  }
+//  /**
+//   * @deprecated this method name is a typo, use <code>setMessages</code> method instead
+//   */
+//  @Deprecated
+//  public void getMessages(List<FatResponseMessage> messages) {
+//    // TODO remove this method after major version change
+//    setMessages(messages);
+//  }
 
   /** Get additional data required for performing the action on the client side. */
   public Map<String, JsonElement> getData() {
