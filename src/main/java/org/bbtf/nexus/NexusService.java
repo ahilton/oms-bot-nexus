@@ -210,7 +210,7 @@ public class NexusService {
     // Microsoft
     private Activity buildActivityForMessage(String message, ChannelAccount serviceAccount) {
         Activity activity = new Activity();
-        activity.setType("Message");
+        activity.setType("message");
         activity.setText(message);
         activity.setFrom(serviceAccount);
         return activity;
